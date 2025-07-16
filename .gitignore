@@ -7,3 +7,5 @@
 !Assets/1_SelfDrivingCar/
 !Assets/1_SelfDrivingCar/Scripts/
 !Assets/1_SelfDrivingCar/Scripts/**
+!Assets/Driver/
+!Assets/Driver/**

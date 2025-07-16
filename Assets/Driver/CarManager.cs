@@ -1,0 +1,309 @@
+using UnityEngine;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Assets._1_SelfDrivingCar.Scripts;
+using UnityStandardAssets.Vehicles.Car;
+using Assets.TcpServerManager;
+using Assets.WayPointSystem2;
+using Assets.Driver;
+using System.Collections;
+
+public class CarManager : MonoBehaviour
+{
+    private Dictionary<int, CarInfo> carDictionary = new Dictionary<int, CarInfo>();
+    private TcpServerManager _tcpServerManager;
+    private long lastTimeTelemetryUpdated;
+
+    // Index of the currently displayed camera
+    private int currentCameraIndex = 0;
+
+    // Reference to the currently active car (the one being controlled)
+    private CarInfo currentActiveCar;
+
+    /// <summary>
+    /// Initializes telemetry update time.
+    /// </summary>
+    private void Awake()
+    {
+        lastTimeTelemetryUpdated = -1;
+    }
+
+    /// <summary>
+    /// Gets the TcpServerManager instance, connects car controllers, and updates the camera view.
+    /// </summary>
+    private IEnumerator Start()
+    {
+        _tcpServerManager = TcpServerManager.Instance;
+        ConnectCarControllers();
+        yield return new WaitForSeconds(0.1f);
+        UpdateCameraView();
+    }
+
+    /// <summary>
+    /// Connects new car controllers, updates telemetry, and handles camera cycling via arrow keys.
+    /// </summary>
+    private void Update()
+    {
+        ConnectCarControllers();
+        UpdateTelemetry();
+
+        if (Input.GetKeyDown(KeyCode.RightArrow))
+        {
+            CycleCamera(1);
+        }
+        else if (Input.GetKeyDown(KeyCode.LeftArrow))
+        {
+            CycleCamera(-1);
+        }
+    }
+
+    /// <summary>
+    /// Moves the currently active car (for manual or remote control) and drives autonomous vehicles.
+    /// </summary>
+    private void FixedUpdate()
+    {
+        if (currentActiveCar != null && currentActiveCar.carController != null)
+        {
+            if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.A) ||
+                Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.D))
+            {
+                currentActiveCar.moveAlongCircuit.enabled = false;
+                currentActiveCar.steering.UpdateValues();
+                currentActiveCar.carController.Move(
+                    currentActiveCar.steering.H,
+                    currentActiveCar.steering.V,
+                    currentActiveCar.steering.V,
+                    0f
+                );
+            }
+            else
+            {
+                if (currentActiveCar != null && currentActiveCar.moveAlongCircuit != null)
+                {
+                    currentActiveCar.moveAlongCircuit.enabled = true;
+                }
+                currentActiveCar.carController.Move(
+                    currentActiveCar.RemoteSteeringAngle,
+                    currentActiveCar.RemoteAcceleration,
+                    currentActiveCar.RemoteAcceleration,
+                    0f
+                );
+            }
+        }
+
+        foreach (var kvp in carDictionary)
+        {
+            var carInfo = kvp.Value;
+            if (carInfo.autonomous && carInfo.carController != null && carInfo != currentActiveCar)
+            {
+                carInfo.carController.Move(
+                    carInfo.RemoteSteeringAngle,
+                    carInfo.RemoteAcceleration,
+                    carInfo.RemoteAcceleration,
+                    0f
+                );
+            }
+        }
+    }
+
+
+    /// <summary>
+    /// Registers all cars in the scene based on the "Car" tag and the CarIdentifier component.
+    /// </summary>
+    private void ConnectCarControllers()
+    {
+        GameObject[] carObjects = GameObject.FindGameObjectsWithTag("Car");
+        foreach (GameObject car in carObjects)
+        {
+            CarIdentifier identifier = car.GetComponent<CarIdentifier>();
+            if (identifier != null)
+            {
+                int id = identifier.CarId;
+                if (!carDictionary.ContainsKey(id))
+                {
+                    CarInfo info = new CarInfo
+                    {
+                        CarId = id,
+                        carController = car.GetComponent<CarController>(),
+                        wayPointTracker = car.GetComponent<WayPointTracker>()
+                    };
+
+                    Transform ffcTransform = car.transform.Find("Front Facing Camera");
+                    if (ffcTransform != null)
+                    {
+                        info.frontFacingCamera = ffcTransform.GetComponent<Camera>();
+                    }
+                    Transform mcTransform = car.transform.Find("Main Camera");
+                    if (mcTransform != null)
+                    {
+                        info.mainCamera = mcTransform.GetComponent<Camera>();
+                    }
+
+                    info.steering = new Steering();
+                    info.steering.Start();
+
+                    info.RemoteSteeringAngle = 0f;
+                    info.RemoteAcceleration = 0f;
+                    info.autonomous = identifier.autonomous;
+                    info.moveAlongCircuit = car.GetComponent<MoveAlongCircuitWithCarControl>();
+                    info.currentTelemetry = new CarTelemetry();
+
+                    carDictionary.Add(id, info);
+                    Debug.Log("Car registered: CarId " + id);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Called by the TcpServerManager to set car actions based on the received CommandData.
+    /// </summary>
+    /// <param name="commandData">Contains fields such as carId, Indicator, steering_angle, and throttle.</param>
+    public void SetCarAction(CommandData commandData)
+    {
+        var carControll = commandData.carControll;
+        int carId = carControll.carId;
+        if (carDictionary.TryGetValue(carId, out CarInfo carInfo))
+        {
+            carInfo.RemoteSteeringAngle = carControll.steering_angle;
+            carInfo.RemoteAcceleration = carControll.throttle;
+
+            if (carInfo.moveAlongCircuit != null)
+            {
+                if (carControll.Indicator == IndicatorDirection.Left)
+                    carInfo.moveAlongCircuit.indicatorManager.ActivateLeft();
+                else if (carControll.Indicator == IndicatorDirection.Right)
+                    carInfo.moveAlongCircuit.indicatorManager.ActivateRight();
+                else
+                    carInfo.moveAlongCircuit.indicatorManager.DeactivateAll();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Updates telemetry for each car and broadcasts the data via TcpServerManager.
+    /// </summary>
+    private void UpdateTelemetry()
+    {
+        long currentTime = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+        if (currentTime - lastTimeTelemetryUpdated < 10)
+            return;
+
+        foreach (var kvp in carDictionary)
+        {
+            CarInfo carInfo = kvp.Value;
+            if (carInfo.carController == null || carInfo.frontFacingCamera == null || carInfo.autonomous)
+                continue;
+
+            CarTelemetry telemetry = new CarTelemetry
+            {
+                carId = carInfo.CarId,
+                timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds().ToString(),
+                image = Convert.ToBase64String(CameraHelper.CaptureFrame(carInfo.frontFacingCamera)),
+                pos_x = carInfo.carController.transform.position.x,
+                pos_y = carInfo.carController.transform.position.y,
+                pos_z = carInfo.carController.transform.position.z,
+                steering_angle = carInfo.carController.CurrentSteerAngle,
+                throttle = carInfo.carController.AccelInput,
+                speed = carInfo.carController.CurrentSpeed
+            };
+
+            if (carInfo.wayPointTracker != null)
+            {
+                var point = carInfo.wayPointTracker.getClosestWayPoint();
+                if (point != null)
+                    telemetry.sector = point.Number;
+            }
+
+            carInfo.currentTelemetry = telemetry;
+            _tcpServerManager.BroadcastTelemetry(telemetry);
+        }
+        lastTimeTelemetryUpdated = currentTime;
+    }
+
+    /// <summary>
+    /// Updates the camera view by enabling the main camera of the selected car.
+    /// </summary>
+    private void UpdateCameraView()
+    {
+        // Erstelle eine Liste aller Fahrzeuge mit einer MainCamera und deaktiviere diese
+        List<CarInfo> carsWithCamera = new List<CarInfo>();
+        foreach (var info in carDictionary.Values)
+        {
+            if (info.mainCamera != null)
+            {
+                carsWithCamera.Add(info);
+                info.mainCamera.gameObject.SetActive(false);
+            }
+        }
+        if (carsWithCamera.Count == 0)
+        {
+            Debug.LogWarning("Keine Fahrzeuge mit MainCamera gefunden.");
+            return;
+        }
+
+        // Stelle sicher, dass der currentCameraIndex im g�ltigen Bereich liegt
+        currentCameraIndex = Mathf.Clamp(currentCameraIndex, 0, carsWithCamera.Count - 1);
+        CarInfo selectedCar = carsWithCamera[currentCameraIndex];
+
+        // Aktiviere die Kamera und den zugeh�rigen AudioListener
+        selectedCar.mainCamera.gameObject.SetActive(true);
+        AudioListener selectedAudio = selectedCar.mainCamera.GetComponent<AudioListener>();
+        if (selectedAudio != null)
+            selectedAudio.enabled = true;
+
+        currentActiveCar = selectedCar;
+        Debug.Log("Active camera switched: CarId " + currentActiveCar.CarId);
+    }
+
+
+
+    /// <summary>
+    /// Cycles through available cameras based on the provided direction.
+    /// </summary>
+    /// <param name="direction">The direction to cycle (1 for next, -1 for previous).</param>
+    private void CycleCamera(int direction)
+    {
+        List<CarInfo> carsWithCamera = new List<CarInfo>();
+        foreach (var info in carDictionary.Values)
+        {
+            if (info.mainCamera != null)
+            {
+                carsWithCamera.Add(info);
+            }
+        }
+        if (carsWithCamera.Count == 0)
+            return;
+
+        currentCameraIndex = (currentCameraIndex + direction + carsWithCamera.Count) % carsWithCamera.Count;
+        UpdateCameraView();
+    }
+
+
+    /// <summary>
+    /// Gets the active car info.
+    /// </summary>
+    public CarInfo ActiveCarInfo
+    {
+        get { return currentActiveCar != null ? currentActiveCar : null; }
+    }
+
+    /// <summary>
+    /// Helper class that bundles all relevant components and parameters of a vehicle.
+    /// </summary>
+    public class CarInfo
+    {
+        public int CarId;
+        public bool autonomous;
+        public CarController carController;
+        public WayPointTracker wayPointTracker;
+        public Camera frontFacingCamera;
+        public Camera mainCamera;
+        public Steering steering;
+        public CarTelemetry currentTelemetry;
+        public float RemoteSteeringAngle { get; set; }
+        public float RemoteAcceleration { get; set; }
+        public MoveAlongCircuitWithCarControl moveAlongCircuit;
+    }
+}
