@@ -9,7 +9,7 @@ namespace Assets._1_SelfDrivingCar.Scripts
     [Serializable]
     public class CarTelemetry
     {
-        public int carId; 
+        public int carId;
         public string timestamp;
         public string image;
         public float pos_x;
@@ -22,5 +22,6 @@ namespace Assets._1_SelfDrivingCar.Scripts
         public float next_cte;
         public int sector;
         public int lap;
+        public float angular_difference;
     }
 }

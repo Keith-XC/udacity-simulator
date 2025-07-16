@@ -213,7 +213,23 @@ public class CarManager : MonoBehaviour
             {
                 var point = carInfo.wayPointTracker.getClosestWayPoint();
                 if (point != null)
+                {
                     telemetry.sector = point.Number;
+
+                    // compute angular difference 
+                    Vector3 toNext = (point.Position - carInfo.carController.transform.position).normalized;
+                    Vector3 forward = carInfo.carController.transform.forward;
+                    float angular_difference = Vector3.SignedAngle(forward, toNext, Vector3.up);
+                    telemetry.angular_difference = angular_difference;
+                }
+                else
+                {
+                    telemetry.angular_difference = 0f;
+                }
+            }
+            else
+            {
+                telemetry.angular_difference = 0f;
             }
 
             carInfo.currentTelemetry = telemetry;
