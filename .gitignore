@@ -1,18 +1,7 @@
-#ignore everything
+# Ignore everything
 *
 
-# except those
+# Except these
 !.gitignore
-!Assets/
-!Assets/1_SelfDrivingCar/
-!Assets/1_SelfDrivingCar/Scripts/
-!Assets/1_SelfDrivingCar/Scripts/**
-!Assets/Driver/
-!Assets/Driver/**
-!Assets/TcpServerManager/
-!Assets/TcpServerManager/**
-!Assets/GeneratedTrack/
-!Assets/GeneratedTrack/**
-!Assets/WayPointSystem2/
-!Assets/WayPointSystem2/**
-
+!*/
+!**/*.cs
