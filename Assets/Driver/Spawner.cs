@@ -24,9 +24,8 @@ public class Spawner : MonoBehaviour
     public float maxSpeed = 50f;
     public Vector3 minScale = new Vector3(0.8f, 0.8f, 0.8f);
     public Vector3 maxScale = new Vector3(1.2f, 1.2f, 1.2f);
-    public float offsetRange = 1f; 
+    public float offsetRange = 1f;
     public int RandomCars = 0;
-    public bool spawnMinmumCar = true;
 
     /// <summary>
     /// Initializes the TcpServerManager and subscribes to commands.
@@ -48,13 +47,9 @@ public class Spawner : MonoBehaviour
             Debug.LogError("Spawner: TcpServerManager instance is not available.");
         }
 
-        if (RandomCars != 0)
+        if (RandomCars > 0)
         {
             SpawnRandomCars(RandomCars);
-        }
-        else if (spawnMinmumCar)
-        {
-            SpawnRandomCars(1);
         }
 
         GameObject UI = Resources.Load<GameObject>("Objects/CarUI");
@@ -98,20 +93,49 @@ public class Spawner : MonoBehaviour
                         Debug.Log($"Spawner: Spawn point: {commandData.spawn_point}");
                     }
                     spawnVector = new SpawnVectors(commandData.offset, commandData.scale_Vektor, commandData.rotation);
+                    var waitList = commandData.waitingPoints != null ? commandData.waitingPoints.ToList() : new List<WaitPoint>();
+                    var wpListSingle = commandData.waypoints != null ? commandData.waypoints.ToList() : new List<string>();
                     int assignedCarId = SpawnCarsWithResponse(
                         commandData.name,
                         commandData.prefab_name,
                         commandData.spawn_point,
                         commandData.speed,
                         spawnVector,
-                        commandData.waitingPoints.ToList(),
-                        commandData.waypoints.ToList(),
+                        waitList,
+                        wpListSingle,
                         commandData.layer,
                         commandData.humanBehavior,
                         commandData.autonomous
                     );
                     if(commandData.autonomous)
                         SendSpawnResponse(assignedCarId, commandData.requestedCarId);
+
+                    break;
+
+                case "spawn_cars":
+                    if (commandData.cars != null)
+                    {
+                        foreach (var carData in commandData.cars)
+                        {
+                            SpawnVectors sv = new SpawnVectors(carData.offset, carData.scale_Vektor, carData.rotation);
+                            var waitPts = carData.waitingPoints != null ? carData.waitingPoints.ToList() : new List<WaitPoint>();
+                            var wpList = carData.waypoints != null ? carData.waypoints.ToList() : new List<string>();
+                            int id = SpawnCarsWithResponse(
+                                carData.name,
+                                carData.prefab_name,
+                                carData.spawn_point,
+                                carData.speed,
+                                sv,
+                                waitPts,
+                                wpList,
+                                carData.layer,
+                                carData.humanBehavior,
+                                carData.autonomous
+                            );
+                            if (carData.autonomous)
+                                SendSpawnResponse(id, carData.requestedCarId);
+                        }
+                    }
                     break;
 
                 case "spawn_static_object":
@@ -121,6 +145,10 @@ public class Spawner : MonoBehaviour
                     }
                     spawnVector = new SpawnVectors(commandData.offset, commandData.scale_Vektor, commandData.rotation);
                     SpawnObject(commandData.prefab_name, commandData.spawn_point, spawnVector, commandData.waypoints.ToList());
+                    break;
+
+                case "spawn_random_cars":
+                    SpawnRandomCars(commandData.randomCarAmount);
                     break;
 
                 default:

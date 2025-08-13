@@ -193,7 +193,7 @@ public class CarManager : MonoBehaviour
         foreach (var kvp in carDictionary)
         {
             CarInfo carInfo = kvp.Value;
-            if (carInfo.carController == null || carInfo.frontFacingCamera == null || carInfo.autonomous)
+            if (carInfo.carController == null || carInfo.frontFacingCamera == null || !carInfo.autonomous)
                 continue;
 
             CarTelemetry telemetry = new CarTelemetry
