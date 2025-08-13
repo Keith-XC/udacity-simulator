@@ -28,7 +28,26 @@ public class CommandData
     public bool autonomous;
     public CarControll carControll;
     public int requestedCarId;
+    public List<CarSpawnData> cars;
 
+}
+
+[Serializable]
+public class CarSpawnData
+{
+    public string name;
+    public float speed;
+    public float spawn_point;
+    public string prefab_name;
+    public float[] scale_Vektor;
+    public float[] rotation;
+    public float[] offset;
+    public float humanBehavior;
+    public WaitPoint[] waitingPoints;
+    public string[] waypoints;
+    public string layer;
+    public bool autonomous;
+    public int requestedCarId;
 }
 
 
