@@ -45,8 +45,9 @@ public class CarManager : MonoBehaviour
     /// </summary>
     private void Update()
     {
-        ConnectCarControllers();
+
         UpdateTelemetry();
+        ConnectCarControllers();
 
         if (Input.GetKeyDown(KeyCode.RightArrow))
         {
@@ -83,12 +84,14 @@ public class CarManager : MonoBehaviour
                 {
                     currentActiveCar.moveAlongCircuit.enabled = true;
                 }
+                Debug.Log($"0000 Car ID: {currentActiveCar.CarId}, Steering Angle: {currentActiveCar.RemoteSteeringAngle}, Acceleration: {currentActiveCar.RemoteAcceleration}");
                 currentActiveCar.carController.Move(
                     currentActiveCar.RemoteSteeringAngle,
                     currentActiveCar.RemoteAcceleration,
                     currentActiveCar.RemoteAcceleration,
                     0f
                 );
+
             }
         }
 
@@ -141,10 +144,10 @@ public class CarManager : MonoBehaviour
                     }
 
                     info.steering = new Steering();
-                    info.steering.Start();
+                    info.steering.Start(); // TODO: check this out
 
                     info.RemoteSteeringAngle = 0f;
-                    info.RemoteAcceleration = 0f;
+                    info.RemoteAcceleration = 0.7f;
                     info.autonomous = identifier.autonomous;
                     info.moveAlongCircuit = car.GetComponent<MoveAlongCircuitWithCarControl>();
                     info.currentTelemetry = new CarTelemetry();
@@ -164,8 +167,11 @@ public class CarManager : MonoBehaviour
     {
         var carControll = commandData.carControll;
         int carId = carControll.carId;
+
         if (carDictionary.TryGetValue(carId, out CarInfo carInfo))
         {
+            currentActiveCar = carInfo; // <<< make sure we drive THIS car
+
             carInfo.RemoteSteeringAngle = carControll.steering_angle;
             carInfo.RemoteAcceleration = carControll.throttle;
 

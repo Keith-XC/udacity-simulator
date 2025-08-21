@@ -105,9 +105,10 @@ public class Spawner : MonoBehaviour
                         wpListSingle,
                         commandData.layer,
                         commandData.humanBehavior,
-                        commandData.autonomous
+                        commandData.autonomous,
+                        commandData.requestedCarId
                     );
-                    if(commandData.autonomous)
+                    if (commandData.autonomous)
                         SendSpawnResponse(assignedCarId, commandData.requestedCarId);
 
                     break;
@@ -130,7 +131,8 @@ public class Spawner : MonoBehaviour
                                 wpList,
                                 carData.layer,
                                 carData.humanBehavior,
-                                carData.autonomous
+                                carData.autonomous,
+                                carData.requestedCarId
                             );
                             if (carData.autonomous)
                                 SendSpawnResponse(id, carData.requestedCarId);
@@ -165,8 +167,18 @@ public class Spawner : MonoBehaviour
     /// <summary>
     /// Spawns a car with the provided parameters and returns the assigned CarId.
     /// </summary>
-    public int SpawnCarsWithResponse(string carName, string prefabName, float startPosition, float speedPerCar, SpawnVectors spawnVectors,
-                         List<WaitPoint> waitPoints, List<string> waypoints, string layer, float humanBehavior, bool autonomous)
+    public int SpawnCarsWithResponse(
+        string carName,
+        string prefabName,
+        float startPosition,
+        float speedPerCar,
+        SpawnVectors spawnVectors,
+        List<WaitPoint> waitPoints,
+        List<string> waypoints,
+        string layer,
+        float humanBehavior,
+        bool autonomous,
+        int requestedCarId)
     {
         if (string.IsNullOrEmpty(prefabName))
         {
@@ -174,7 +186,6 @@ public class Spawner : MonoBehaviour
             return -1;
         }
         GameObject carPrefab = Resources.Load<GameObject>(prefabName);
-
         if (carPrefab == null)
         {
             Debug.LogError($"Spawner: Could not find prefab with the name {prefabName} in the Resources folder.");
@@ -182,32 +193,33 @@ public class Spawner : MonoBehaviour
         }
 
         var manager = FindObjectsOfType<WayPointManager>().First();
-        var wayPointCircuit = new WayPointCircuit();
-        if (waypoints.Any())
-        {
-            wayPointCircuit = manager.combineWayPointCircuit(waypoints);
-        }
-        else
-        {
-            wayPointCircuit = manager.Circuits[Random.Range(0, manager.Circuits.Count)];
-        }
-        
-        int waypointIndex = (int)startPosition;
-        if (waypointIndex < 0 || waypointIndex >= wayPointCircuit.GetComponent<WayPointCircuit>().WayPoints.Count)
-        {
-            Debug.LogWarning($"Spawner: Invalid waypoint index: {waypointIndex}. Using waypoint 0.");
-            waypointIndex = 0;
-        }
-        Quaternion spawnRotation = spawnVectors._rotation;
-        Debug.Log($"Spawner: Spawning car at waypoint {waypointIndex}.");
+        WayPointCircuit wayPointCircuit = waypoints.Any()
+            ? manager.combineWayPointCircuit(waypoints)
+            : manager.Circuits[Random.Range(0, manager.Circuits.Count)];
 
-        GameObject car = Instantiate(carPrefab, spawnVectors._size, spawnRotation);
+        // --- Pose on track (NOT spawnVectors._size!) ---
+        int count = wayPointCircuit.WayPoints.Count;
+        int waypointIndex = Mathf.Clamp((int)startPosition, 0, count - 1);
+        int nextIndex = (waypointIndex + 1) % count;
+
+        var wpA = wayPointCircuit.WayPoints[waypointIndex];
+        var wpB = wayPointCircuit.WayPoints[nextIndex];
+
+        Vector3 waypointPosition = wpA.Position;
+        Vector3 forward = (wpB.Position - wpA.Position).normalized;
+        Quaternion pathRotation = Quaternion.LookRotation(forward);
+        Quaternion spawnRotation = pathRotation * spawnVectors._rotation;
+
+        // --- Instantiate at the waypoint pose ---
+        GameObject car = Instantiate(carPrefab, waypointPosition, spawnRotation);
         car.transform.localScale = spawnVectors._size;
         car.tag = "Car";
 
         MoveAlongCircuitWithCarControl moveScript = car.GetComponent<MoveAlongCircuitWithCarControl>();
+
         if (moveScript != null && wayPointCircuit.WayPoints.Any() && !autonomous)
         {
+            // NPC cars follow the circuit
             moveScript.Speed = speedPerCar;
             moveScript.Offset = spawnVectors._offset;
             moveScript.WaitPoints = waitPoints;
@@ -217,29 +229,25 @@ public class Spawner : MonoBehaviour
             moveScript.SetStartPoint(waypointIndex);
             moveScript.HumanBehavior = humanBehavior;
             moveScript.CarName = carName;
+
+            // keep exact initial pose
+            car.transform.SetPositionAndRotation(waypointPosition, spawnRotation);
         }
         else
         {
-            if (manager != null && manager.Circuits != null && manager.Circuits.Count > 0)
-            { 
-
-                var waypoint = wayPointCircuit.WayPoints[waypointIndex];
-                var nextWaypoint = new WayPoint();
-                if (wayPointCircuit.WayPoints.Count > waypointIndex++)
-                {
-                    nextWaypoint = wayPointCircuit.WayPoints[waypointIndex++];
-                }
-
-                Vector3 direction = nextWaypoint.Position - waypoint.Position;
-                car.GetComponent<CarController>().SetCarPositionAndRotation(waypoint.Position, Quaternion.LookRotation(direction.normalized) * spawnVectors._rotation);
-            }
+            // Remote/agent car: lock exact pose via CarController API
+            var ctrl = car.GetComponent<CarController>();
+            if (ctrl != null)
+                ctrl.SetCarPositionAndRotation(waypointPosition, spawnRotation);
         }
 
+        // Assign id + mark autonomous (remote) on the identifier
         CarIdentifier identifier = car.GetComponent<CarIdentifier>();
         int assignedId = -1;
         if (identifier != null)
         {
-            assignedId = manager.cars.Count() + 1;
+            // If a specific ID is requested (e.g., ego=1), use it; otherwise assign next
+            assignedId = (requestedCarId > 0) ? requestedCarId : manager.cars.Count() + 1;
             identifier.CarId = assignedId;
             identifier.autonomous = autonomous;
         }
@@ -249,17 +257,11 @@ public class Spawner : MonoBehaviour
         }
 
         if (autonomous)
-        {
-            if (moveScript != null)
-            {
-                moveScript.enabled = false;
-            }
             Debug.Log("Spawner: " + carName + " is in REMOTE mode (controlled via CarManager).");
-        }
         else
-        {
             Debug.Log("Spawner: " + carName + " is in autonomous mode (controlled by MoveAlongCircuit).");
-        }
+
+        // Keep list consistent for existing code paths; null is OK if remote car has no mover
         manager.cars.Add(moveScript);
 
         return assignedId;
@@ -295,7 +297,7 @@ public class Spawner : MonoBehaviour
             Debug.LogError($"Spawner: Could not find prefab with name {prefabName} in the Resources folder.");
             return;
         }
-        
+
         var manager = FindObjectsOfType<WayPointManager>().First();
         var wayPointCircuit = manager.combineWayPointCircuit(waypoints);
         float waypointIndex = startPosition;
