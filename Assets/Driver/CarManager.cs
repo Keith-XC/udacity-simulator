@@ -80,11 +80,10 @@ public class CarManager : MonoBehaviour
             }
             else
             {
-                if (currentActiveCar != null && currentActiveCar.moveAlongCircuit != null)
-                {
-                    currentActiveCar.moveAlongCircuit.enabled = true;
-                }
-                Debug.Log($"0000 Car ID: {currentActiveCar.CarId}, Steering Angle: {currentActiveCar.RemoteSteeringAngle}, Acceleration: {currentActiveCar.RemoteAcceleration}");
+                // if (currentActiveCar != null && currentActiveCar.moveAlongCircuit != null)
+                // {
+                //     currentActiveCar.moveAlongCircuit.enabled = true;
+                // }
                 currentActiveCar.carController.Move(
                     currentActiveCar.RemoteSteeringAngle,
                     currentActiveCar.RemoteAcceleration,
@@ -144,10 +143,10 @@ public class CarManager : MonoBehaviour
                     }
 
                     info.steering = new Steering();
-                    info.steering.Start(); // TODO: check this out
+                    info.steering.Start();
 
                     info.RemoteSteeringAngle = 0f;
-                    info.RemoteAcceleration = 0.7f;
+                    info.RemoteAcceleration = 0f;
                     info.autonomous = identifier.autonomous;
                     info.moveAlongCircuit = car.GetComponent<MoveAlongCircuitWithCarControl>();
                     info.currentTelemetry = new CarTelemetry();
