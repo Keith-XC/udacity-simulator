@@ -33,7 +33,7 @@ public class UnityMainThreadDispatcher : MonoBehaviour
     /// </summary>
     public static UnityMainThreadDispatcher Instance()
     {
-        if (_instance == null)
+        /*if (_instance == null)
         {
             // Versuch, eine existierende Instanz zu finden
             _instance = FindObjectOfType<UnityMainThreadDispatcher>();
@@ -46,7 +46,15 @@ public class UnityMainThreadDispatcher : MonoBehaviour
                 Debug.Log("UnityMainThreadDispatcher wurde erstellt.");
             }
         }
-        return _instance;
+        return _instance;*/
+
+
+            if (_instance == null)
+            {
+                Debug.LogError("UnityMainThreadDispatcher not found in scene! Please add it manually.");
+            }
+            return _instance;
+        
     }
 
     void Awake()

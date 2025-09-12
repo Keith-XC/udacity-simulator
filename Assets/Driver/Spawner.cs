@@ -17,7 +17,10 @@ public class Spawner : MonoBehaviour
 {
     private TcpServerManager _tcpServerManager;
     private OtherObjectsServer _otherObjectsServer;
-
+    public static event Action OnCarSpawned;
+    // To track used car IDs and avoid duplicates
+    private HashSet<int> usedCarIds = new HashSet<int>();
+    
     [Header("Car Prefabs and Spawn Settings")]
     public string[] possibleCarPrefabs = { "Objects/CarBlue", "Objects/CarRed", "Objects/CarBlack" };
     public float minSpeed = 10f;
@@ -65,6 +68,8 @@ public class Spawner : MonoBehaviour
         {
             _otherObjectsServer.OnOtherCarsCommandReceived -= HandleOtherCarsCommand;
         }
+        // Clear used IDs on destroy
+        usedCarIds.Clear();
     }
 
     /// <summary>
@@ -135,6 +140,7 @@ public class Spawner : MonoBehaviour
                                 carData.requestedCarId
                             );
                             if (carData.autonomous)
+                                Debug.Log($"Spawner: Sent spawn response for car ID {id}");
                                 SendSpawnResponse(id, carData.requestedCarId);
                         }
                     }
@@ -162,6 +168,31 @@ public class Spawner : MonoBehaviour
         {
             Debug.LogError($"Spawner: Error processing command {commandData.command}: {e.Message}");
         }
+    }
+    
+    // get the next available car ID, ensuring no duplicates
+    private int GetNextAvailableId(int requestedId)
+    {
+        // if requested ID is 1, make sure it's for ego car
+        if (requestedId == 1)
+        {
+            if (usedCarIds.Contains(1))
+            {
+                Debug.LogError("Spawner: Car ID 1 is reserved for ego car and already in use!");
+                return -1;
+            }
+            usedCarIds.Add(1);
+            return 1;
+        }
+
+        // for other cars, assign the next available ID starting from 2
+        int newId = 2;
+        while (usedCarIds.Contains(newId))
+        {
+            newId++;
+        }
+        usedCarIds.Add(newId);
+        return newId;
     }
 
     /// <summary>
@@ -193,9 +224,52 @@ public class Spawner : MonoBehaviour
         }
 
         var manager = FindObjectsOfType<WayPointManager>().First();
-        WayPointCircuit wayPointCircuit = waypoints.Any()
+
+        
+        /*WayPointCircuit wayPointCircuit = waypoints.Any()
             ? manager.combineWayPointCircuit(waypoints)
             : manager.Circuits[Random.Range(0, manager.Circuits.Count)];
+        */
+        WayPointCircuit wayPointCircuit;
+        if (waypoints != null && waypoints.Any())
+        {
+            try 
+            {
+                wayPointCircuit = manager.combineWayPointCircuit(waypoints);
+                if (wayPointCircuit == null)
+                {
+                    Debug.LogWarning($"Spawner: Could not find waypoint circuit {waypoints[0]}, falling back to first available circuit");
+                    if (manager.Circuits == null || manager.Circuits.Count == 0)
+                    {
+                        Debug.LogError("Spawner: No circuits available in WayPointManager");
+                        return -1;
+                    }
+                    wayPointCircuit = manager.Circuits[0];
+                    Debug.Log($"Spawner: Using circuit: {wayPointCircuit.name}");
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"Spawner: Error finding waypoint circuit: {e.Message}, falling back to first available circuit");
+                if (manager.Circuits == null || manager.Circuits.Count == 0)
+                {
+                    Debug.LogError("Spawner: No circuits available in WayPointManager");
+                    return -1;
+                }
+                wayPointCircuit = manager.Circuits[0];
+                Debug.Log($"Spawner: Using circuit: {wayPointCircuit.name}");
+            }
+        }
+        else
+        {
+            if (manager.Circuits == null || manager.Circuits.Count == 0)
+            {
+                Debug.LogError("Spawner: No circuits available in WayPointManager");
+                return -1;
+            }
+            wayPointCircuit = manager.Circuits[0];
+            Debug.Log($"Spawner: No waypoints specified, using first circuit: {wayPointCircuit.name}");
+        }
 
         // --- Pose on track (NOT spawnVectors._size!) ---
         int count = wayPointCircuit.WayPoints.Count;
@@ -246,24 +320,71 @@ public class Spawner : MonoBehaviour
         int assignedId = -1;
         if (identifier != null)
         {
-            // If a specific ID is requested (e.g., ego=1), use it; otherwise assign next
-            assignedId = (requestedCarId > 0) ? requestedCarId : manager.cars.Count() + 1;
+            // 检查是否是ego car (requestedId == 1)
+            if (requestedCarId == 1 && autonomous)
+            {
+                assignedId = GetNextAvailableId(1);
+                if (assignedId == -1)
+                {
+                    Debug.LogError("Spawner: Failed to assign ID 1 for ego car - already in use");
+                    Destroy(car);
+                    return -1;
+                }
+            }
+            else
+            {
+                // 其他车辆使用自动分配的ID
+                assignedId = GetNextAvailableId(2); // 从2开始分配
+            }
+
             identifier.CarId = assignedId;
             identifier.autonomous = autonomous;
+            Debug.Log($"Spawner: Assigned ID {assignedId} to car {carName}");
         }
         else
         {
             Debug.LogWarning("Spawner: CarIdentifier not found. Ensure that the prefab contains one.");
+            Destroy(car);
+            return -1;
         }
 
         if (autonomous)
             Debug.Log("Spawner: " + carName + " is in REMOTE mode (controlled via CarManager).");
+            if (requestedCarId == 1)
+            {
+                // Main camera setup
+                var mainCam = car.transform.Find("Main Camera");
+                if (mainCam == null) 
+                {
+                    GameObject mainCamera = new GameObject("Main Camera");
+                    mainCamera.transform.SetParent(car.transform);
+                    mainCamera.transform.localPosition = new Vector3(0, 2, -4);
+                    mainCamera.transform.localRotation = Quaternion.Euler(10, 0, 0);
+                    Camera cam = mainCamera.AddComponent<Camera>();
+                    cam.tag = "MainCamera";
+                    mainCamera.AddComponent<AudioListener>();  // Only add AudioListener to ego car
+                }
+
+                // Front camera setup
+                var frontCam = car.transform.Find("Front Facing Camera");
+                if (frontCam == null) 
+                {
+                    GameObject frontCamera = new GameObject("Front Facing Camera");
+                    frontCamera.transform.SetParent(car.transform);
+                    frontCamera.transform.localPosition = new Vector3(0, 2.5f, -0.5f);
+                    frontCamera.transform.localRotation = Quaternion.identity;
+                    Camera fcam = frontCamera.AddComponent<Camera>();
+                    fcam.enabled = false;
+                }
+            }
         else
             Debug.Log("Spawner: " + carName + " is in autonomous mode (controlled by MoveAlongCircuit).");
 
         // Keep list consistent for existing code paths; null is OK if remote car has no mover
         manager.cars.Add(moveScript);
-
+        
+        // Triggering a vehicle spawn event, will be listened by CarManager to update its list
+        OnCarSpawned?.Invoke();
         return assignedId;
     }
 
@@ -367,8 +488,21 @@ public class Spawner : MonoBehaviour
                 Debug.LogWarning("Spawner: MoveAlongCircuit script not found on the car prefab.");
             }
             CarIdentifier identifier = car.GetComponent<CarIdentifier>();
-            identifier.CarId = manager.cars.Count() + 1;
+            if (identifier != null)
+            {
+                // 使用GetNextAvailableId而不是直接赋值
+                int newId = GetNextAvailableId(2); // NPC车从2开始
+                if (newId == -1)
+                {
+                    Debug.LogError($"Failed to assign ID for random car {i}");
+                    Destroy(car);
+                    continue;
+                }
+                identifier.CarId = newId;
+                Debug.Log($"Assigned ID {newId} to random car {carName}");
+            }
+            
             manager.cars.Add(moveScript);
-        }
+            }
     }
 }

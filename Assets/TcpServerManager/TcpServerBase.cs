@@ -32,6 +32,12 @@ namespace Assets.TcpServerManager
             try
             {
                 server = new TcpListener(IPAddress.Any, port);
+
+                // To enable address/port reuse
+                var socket = server.Server;
+                socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+
                 server.Start();
                 isServerRunning = true;
                 Debug.Log($"{GetType().Name} started on port {port} and waiting for connections.");
@@ -73,9 +79,30 @@ namespace Assets.TcpServerManager
 
         public void StopServer()
         {
-            isServerRunning = false;
-            server?.Stop();
-            CloseAllClients();
+            try
+            {
+                isServerRunning = false;
+                
+                if (server != null)
+                {
+                    // Properly shutdown the server socket
+                    var socket = server.Server;
+                    socket.Shutdown(SocketShutdown.Both);
+                    server.Stop();
+                    server = null;
+                }
+                
+                CloseAllClients();
+                
+                if (listenerThread != null && listenerThread.IsAlive)
+                {
+                    listenerThread.Join(1000); // Wait up to 1 second for thread to finish
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error stopping {GetType().Name}: {e.Message}");
+            }
         }
 
         protected void CloseAllClients()

@@ -30,7 +30,7 @@ namespace Assets.TcpServerManager
                         DontDestroyOnLoad(serverManager);
                         Debug.Log("TcpServerManager created.");
                     }
-                    _instance.Initialize();
+                    //_instance.Initialize();
                 }
                 return _instance;
             }

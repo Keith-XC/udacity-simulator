@@ -34,9 +34,70 @@ public class CarManager : MonoBehaviour
     /// </summary>
     private IEnumerator Start()
     {
+        // listen to spawn events to register new cars
+        Spawner.OnCarSpawned += OnCarSpawned;
+    
+
         _tcpServerManager = TcpServerManager.Instance;
+
+        // 等待场景完全加载
+        yield return new WaitForSeconds(0.1f);
+        
+        // 等待所有车辆完成初始化
+        yield return new WaitUntil(() => GameObject.FindGameObjectsWithTag("Car").Length > 0);
+        
         ConnectCarControllers();
         yield return new WaitForSeconds(0.1f);
+
+        InitializeEgoCarView();
+    }
+
+    private void InitializeEgoCarView()
+    {
+        // try to find the ego car (CarId = 1)
+        if (carDictionary.TryGetValue(1, out CarInfo egoCar) && egoCar.mainCamera != null)
+        {   
+            // 首先检查是否有任何车辆注册
+            if (carDictionary.Count == 0)
+            {
+                Debug.Log("Waiting for cars to be registered...");
+                return;
+            }
+
+            // Get list of cars that have a camera
+            List<CarInfo> carsWithCamera = carDictionary.Values
+                .Where(info => info.mainCamera != null)
+                .ToList();
+
+            // Set the current camera index to the ego car's index
+            currentCameraIndex = carsWithCamera.IndexOf(egoCar);
+            
+            if (currentCameraIndex == -1)
+            {
+                Debug.LogError("Failed to find ego car in cars with camera list");
+                currentCameraIndex = 0;
+            }
+        }
+        else
+        {
+            Debug.LogWarning("Ego car (ID=1) not found or has no camera, using first available camera");
+            currentCameraIndex = 0;
+        }
+
+        UpdateCameraView();
+}
+
+    private void OnDestroy()
+    {
+        // unsubscribe to avoid memory leaks
+        Spawner.OnCarSpawned -= OnCarSpawned;
+    }
+
+    // Called when a new car is spawned in the scene
+    private void OnCarSpawned()
+    {
+        Debug.Log("CarManager: Detected new car spawned, updating controllers...");
+        ConnectCarControllers();
         UpdateCameraView();
     }
 
@@ -47,7 +108,7 @@ public class CarManager : MonoBehaviour
     {
 
         UpdateTelemetry();
-        ConnectCarControllers();
+        // ConnectCarControllers();
 
         if (Input.GetKeyDown(KeyCode.RightArrow))
         {
@@ -257,11 +318,17 @@ public class CarManager : MonoBehaviour
             {
                 carsWithCamera.Add(info);
                 info.mainCamera.gameObject.SetActive(false);
+
+                var audioListener = info.mainCamera.GetComponent<AudioListener>();
+                if (audioListener != null)
+                {
+                    audioListener.enabled = false;
+                }
             }
         }
         if (carsWithCamera.Count == 0)
         {
-            Debug.LogWarning("Keine Fahrzeuge mit MainCamera gefunden.");
+            Debug.LogWarning("No vehicles with MainCamera found.");
             return;
         }
 
