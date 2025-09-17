@@ -472,6 +472,14 @@ public class Spawner : MonoBehaviour
             GameObject car = Instantiate(carPrefab, randomScale, spawnRotation);
             car.transform.localScale = randomScale;
             car.tag = "Car";
+            
+            // Remove any existing AudioListener since random cars shouldn't have one
+            var audioListener = car.GetComponentInChildren<AudioListener>();
+            if (audioListener != null)
+            {
+                Destroy(audioListener);
+            }
+            
             MoveAlongCircuitWithCarControl moveScript = car.GetComponent<MoveAlongCircuitWithCarControl>();
             if (moveScript != null)
             {

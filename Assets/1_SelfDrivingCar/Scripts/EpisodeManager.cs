@@ -167,13 +167,34 @@ public class EpisodeManager : MonoBehaviour
 
     private void EndEpisode()
     {
+        Debug.Log("EpisodeManager: Ending episode...");
         Time.timeScale = 0;
+        
+        // cleanup cars and carDictionary
+        var carManager = FindObjectOfType<CarManager>();
+        if (carManager != null)
+        {
+            carManager.ClearAllCars();
+        }
+        
+        GameObject[] cars = GameObject.FindGameObjectsWithTag("Car");
+        foreach (var car in cars)
+        {
+            Debug.Log($"EpisodeManager: Destroying car {car.name}");
+            Destroy(car);
+        }
+
         string metricsJson = JsonConvert.SerializeObject(metrics);
         string eventsJson = JsonConvert.SerializeObject(eventRecords);
-
+        
+        Debug.Log($"EpisodeManager: Sending metrics - Collisions: {metrics.collisionCount}, Out of Track: {metrics.outOfTrackCount}");
         _eventServer.SendEventResponse(metricsJson);
         _eventServer.SendEventResponse(eventsJson);
         _eventServer.SendEventResponse("{\"event\":\"episode_ended\"}");
+
+        // back to main menu
+        Debug.Log("EpisodeManager: Loading main menu scene");
+        SceneManager.LoadScene(0);
     }
 
     private void StartEpisode(CommandData commandData)
@@ -187,7 +208,7 @@ public class EpisodeManager : MonoBehaviour
             this.WeatherFromString(weatherName),
             this.DayTimeFromString(daytimeName)
         );
-
+        Debug.Log($"EpisodeManager: Starting episode with Track: {trackName}, Weather: {weatherName}, DayTime: {daytimeName}");
         eventRecords = new List<EpisodeEvent>();
         metrics = new EpisodeMetrics();
         Time.timeScale = 1;

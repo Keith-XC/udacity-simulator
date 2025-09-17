@@ -40,10 +40,10 @@ public class CarManager : MonoBehaviour
 
         _tcpServerManager = TcpServerManager.Instance;
 
-        // 等待场景完全加载
+        // wait a moment to ensure TcpServerManager is initialized
         yield return new WaitForSeconds(0.1f);
         
-        // 等待所有车辆完成初始化
+        // wait until at least one car is present in the scene
         yield return new WaitUntil(() => GameObject.FindGameObjectsWithTag("Car").Length > 0);
         
         ConnectCarControllers();
@@ -57,7 +57,7 @@ public class CarManager : MonoBehaviour
         // try to find the ego car (CarId = 1)
         if (carDictionary.TryGetValue(1, out CarInfo egoCar) && egoCar.mainCamera != null)
         {   
-            // 首先检查是否有任何车辆注册
+            // first, ensure there are cars registered
             if (carDictionary.Count == 0)
             {
                 Debug.Log("Waiting for cars to be registered...");
@@ -108,6 +108,7 @@ public class CarManager : MonoBehaviour
     {
 
         UpdateTelemetry();
+
         // ConnectCarControllers();
 
         if (Input.GetKeyDown(KeyCode.RightArrow))
@@ -215,6 +216,10 @@ public class CarManager : MonoBehaviour
                     carDictionary.Add(id, info);
                     Debug.Log("Car registered: CarId " + id);
                 }
+                else
+                {
+                    Debug.LogWarning($"Car with ID {id} is already registered in carDictionary.");
+                }
             }
         }
     }
@@ -300,6 +305,7 @@ public class CarManager : MonoBehaviour
 
             carInfo.currentTelemetry = telemetry;
             _tcpServerManager.BroadcastTelemetry(telemetry);
+            Debug.Log($"CarManager: Telemetry updated for CarId {carInfo.CarId}: Pos=({telemetry.pos_x:F2}, {telemetry.pos_y:F2}, {telemetry.pos_z:F2}), Speed={telemetry.speed:F2}, Steer={telemetry.steering_angle:F2}, Throttle={telemetry.throttle:F2}, Sector={telemetry.sector}, AngularDiff={telemetry.angular_difference:F2}");
         }
         lastTimeTelemetryUpdated = currentTime;
     }
@@ -375,6 +381,17 @@ public class CarManager : MonoBehaviour
     public CarInfo ActiveCarInfo
     {
         get { return currentActiveCar != null ? currentActiveCar : null; }
+    }
+
+    /// <summary>
+    /// Clears all cars from the carDictionary and resets related variables
+    /// </summary>
+    public void ClearAllCars()
+    {
+        Debug.Log($"CarManager: Clearing {carDictionary.Count} cars from dictionary");
+        carDictionary.Clear();
+        currentActiveCar = null;
+        currentCameraIndex = 0;
     }
 
     /// <summary>
