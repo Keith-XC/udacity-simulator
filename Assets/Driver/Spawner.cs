@@ -242,10 +242,15 @@ public class Spawner : MonoBehaviour
                     if (manager.Circuits == null || manager.Circuits.Count == 0)
                     {
                         Debug.LogError("Spawner: No circuits available in WayPointManager");
+                        SendAvailableCircuits(new List<string>());
                         return -1;
                     }
                     wayPointCircuit = manager.Circuits[0];
                     Debug.Log($"Spawner: Using circuit: {wayPointCircuit.name}");
+                    
+                    // Send available circuits to client
+                    var circuitNames = manager.Circuits.Select(c => c.name).ToList();
+                    SendAvailableCircuits(circuitNames);
                 }
             }
             catch (Exception e)
@@ -256,6 +261,10 @@ public class Spawner : MonoBehaviour
                     Debug.LogError("Spawner: No circuits available in WayPointManager");
                     return -1;
                 }
+                // Send available circuits to client
+                var circuitNames = manager.Circuits.Select(c => c.name).ToList();
+                SendAvailableCircuits(circuitNames);
+
                 wayPointCircuit = manager.Circuits[0];
                 Debug.Log($"Spawner: Using circuit: {wayPointCircuit.name}");
             }
@@ -386,6 +395,29 @@ public class Spawner : MonoBehaviour
         // Triggering a vehicle spawn event, will be listened by CarManager to update its list
         OnCarSpawned?.Invoke();
         return assignedId;
+    }
+
+    [Serializable]
+    private class CircuitEventData
+    {
+        public string event_type = "available_circuits";
+        public List<string> circuits;
+    }
+
+    private void SendAvailableCircuits(List<string> circuits)
+    {
+        CircuitEventData eventData = new CircuitEventData
+        {
+            circuits = circuits
+        };
+        string json = JsonUtility.ToJson(eventData);
+        Debug.Log($"Spawner: Available circuits count: {circuits.Count}");
+        foreach (var circuit in circuits)
+        {
+            Debug.Log($"Spawner: Found circuit: {circuit}");
+        }
+        _tcpServerManager.GetEventServer().SendEventResponse(json);
+        Debug.Log($"Spawner: Sent available circuits to client: {json}");
     }
 
     /// <summary>
